@@ -11,6 +11,7 @@ export function AiAssistant() {
   const [briefing, setBriefing] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isFallback, setIsFallback] = useState(false);
 
   const preposition = useOrion((s) => s.preposition);
   const staticBaseline = useOrion((s) => s.staticBaseline);
@@ -24,6 +25,7 @@ export function AiAssistant() {
     setLoading(true);
     setError(null);
     setBriefing(null);
+    setIsFallback(false);
     try {
       const res = await fetch("/api/orion/explain", {
         method: "POST",
@@ -47,12 +49,11 @@ export function AiAssistant() {
           scenarioCount: instance.scenarios.length,
         }),
       });
+      // The endpoint ALWAYS returns 200 (even on fallback) — but guard just in case
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setBriefing(data.briefing);
-      if (data.fallback) {
-        setError("LLM not configured — showing data-driven briefing. Set ZAI_API_KEY to enable AI generation.");
-      }
+      setIsFallback(!!data.fallback);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate briefing");
     } finally {

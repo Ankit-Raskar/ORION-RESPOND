@@ -1,18 +1,16 @@
 /**
  * AEGIS-RELIEF — AI briefing endpoint.
  *
- * Uses the z-ai-web-dev-sdk LLM to generate a plain-English explanation of the
- * stochastic optimization results: why certain warehouses were opened, how the
- * plan hedges against scenarios, and what the deltas vs. the static baseline mean.
+ * Generates a plain-English tactical analysis of the stochastic optimization
+ * results using an LLM.
  *
- * The SDK is used server-side only (per skill guidelines).
- *
- * Auth: the SDK reads from /etc/.z-ai-config or ~/.z-ai-config or ./.z-ai-config.
- * On Vercel (and other serverless platforms) that file doesn't exist, so we
- * build the config from env vars and pass it explicitly.
+ * Resilience strategy (NEVER returns 500):
+ *   1. Try to load LLM credentials from env vars or config files.
+ *   2. If credentials are missing → return HTTP 200 with a data-driven fallback briefing.
+ *   3. If the LLM call fails → return HTTP 200 with a data-driven fallback briefing.
+ *   4. The data sent to the LLM is aggressively summarized to stay well under token limits.
  */
 import { NextRequest, NextResponse } from "next/server";
-import ZAI from "z-ai-web-dev-sdk";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
@@ -35,16 +33,11 @@ interface ExplainBody {
   scenarioCount: number;
 }
 
-/**
- * Build ZAI config from multiple sources (fallback chain):
- * 1. /etc/.z-ai-config (sandbox)
- * 2. ~/.z-ai-config (local dev)
- * 3. ./.z-ai-config (project root)
- * 4. ZAI_CONFIG env var (JSON string, for Vercel)
- * 5. ZAI_BASE_URL + ZAI_API_KEY env vars (Vercel)
- */
-function loadZaiConfig(): { baseUrl: string; apiKey: string; chatId?: string; userId?: string; token?: string } | null {
-  // 1-3: Try config files
+// ──────────────────────────────────────────────────────────────
+// 1. Credential loader — tries multiple sources, never throws
+// ──────────────────────────────────────────────────────────────
+function loadLlmConfig(): { baseUrl: string; apiKey: string; chatId?: string; userId?: string; token?: string } | null {
+  // A. Config files (sandbox / local dev)
   const configPaths = [
     "/etc/.z-ai-config",
     join(process.env.HOME || "/home", ".z-ai-config"),
@@ -53,25 +46,25 @@ function loadZaiConfig(): { baseUrl: string; apiKey: string; chatId?: string; us
   for (const p of configPaths) {
     try {
       if (existsSync(p)) {
-        const config = JSON.parse(readFileSync(p, "utf-8"));
-        if (config.baseUrl && config.apiKey) return config;
+        const c = JSON.parse(readFileSync(p, "utf-8"));
+        if (c.baseUrl && c.apiKey) return c;
       }
     } catch {
-      // continue to next source
+      /* try next */
     }
   }
 
-  // 4: ZAI_CONFIG env var (JSON string)
+  // B. ZAI_CONFIG env var (single JSON string — good for Vercel)
   if (process.env.ZAI_CONFIG) {
     try {
-      const config = JSON.parse(process.env.ZAI_CONFIG);
-      if (config.baseUrl && config.apiKey) return config;
+      const c = JSON.parse(process.env.ZAI_CONFIG);
+      if (c.baseUrl && c.apiKey) return c;
     } catch {
-      // fall through
+      /* fall through */
     }
   }
 
-  // 5: Individual env vars
+  // C. Individual env vars
   if (process.env.ZAI_BASE_URL && process.env.ZAI_API_KEY) {
     return {
       baseUrl: process.env.ZAI_BASE_URL,
@@ -85,91 +78,121 @@ function loadZaiConfig(): { baseUrl: string; apiKey: string; chatId?: string; us
   return null;
 }
 
+// ──────────────────────────────────────────────────────────────
+// 2. Data-driven fallback briefing — ALWAYS returns useful content
+// ──────────────────────────────────────────────────────────────
+function buildFallbackBriefing(body: ExplainBody, reason: string): string {
+  const openNames = body.openSites
+    .map((o) => {
+      const w = body.warehouses.find((x) => x.id === o.warehouseId);
+      return w ? `${w.name} (${o.inventory.toFixed(0)}t/${w.capacity}t)` : o.warehouseId;
+    })
+    .join(", ");
+
+  const totalKm = body.routes.reduce((a, r) => a + r.distanceKm, 0);
+  const totalCo2 = body.routes.reduce((a, r) => a + r.carbonKg, 0);
+  const covDelta = ((body.coverage - body.staticCoverage) * 100).toFixed(1);
+  const unmetReduction = body.staticUnmet > 0
+    ? Math.round((1 - body.expectedUnmet / body.staticUnmet) * 100)
+    : 0;
+
+  return [
+    `• Opened ${body.openSites.length}/${body.warehouses.length} warehouses: ${openNames}.`,
+    `• Coverage ${(body.coverage * 100).toFixed(1)}% (vs ${(body.staticCoverage * 100).toFixed(1)}% static, +${covDelta} pts).`,
+    `• Expected unmet: ${body.expectedUnmet.toFixed(1)}t (vs ${body.staticUnmet.toFixed(1)}t static, −${unmetReduction}%).`,
+    `• Total cost $${(body.totalCost / 1000).toFixed(0)}K · ${body.routes.length} routes · ${totalKm.toFixed(0)}km · ${totalCo2.toFixed(0)}kg CO₂.`,
+    `• Hedged across ${body.scenarioCount} scenarios; prioritizes critical zones when capacity is constrained.`,
+  ].join("\n\n");
+}
+
+// ──────────────────────────────────────────────────────────────
+// 3. Compact summary for the LLM — stays well under token limits
+//    (target: <400 tokens of input so the model has room to respond)
+// ──────────────────────────────────────────────────────────────
+function buildCompactPrompt(body: ExplainBody): string {
+  const openSites = body.openSites
+    .map((o) => {
+      const w = body.warehouses.find((x) => x.id === o.warehouseId);
+      return w ? `${w.name}(${o.inventory.toFixed(0)}t/${w.capacity}t)` : o.warehouseId;
+    })
+    .join(", ");
+
+  // Only send critical zones (not all zones) to save tokens
+  const criticalZones = body.zones
+    .filter((z) => z.priority === "critical")
+    .slice(0, 5) // cap at 5
+    .map((z) => z.name)
+    .join(", ");
+
+  const totalKm = body.routes.reduce((a, r) => a + r.distanceKm, 0);
+  const totalCo2 = body.routes.reduce((a, r) => a + r.carbonKg, 0);
+
+  return [
+    `DISASTER: ${body.disasterType} — ${body.instanceName}`,
+    `SCENARIOS: ${body.scenarioCount}`,
+    `CRITICAL ZONES: ${criticalZones || "none"}`,
+    ``,
+    `RESULT:`,
+    `• Open ${body.openSites.length}/${body.warehouses.length} sites: ${openSites}`,
+    `• Coverage ${(body.coverage * 100).toFixed(1)}% (static ${(body.staticCoverage * 100).toFixed(1)}%)`,
+    `• Unmet ${body.expectedUnmet.toFixed(1)}t (static ${body.staticUnmet.toFixed(1)}t)`,
+    `• Cost $${(body.totalCost / 1000).toFixed(0)}K | ${body.routes.length} routes | ${totalKm.toFixed(0)}km | ${totalCo2.toFixed(0)}kg CO₂`,
+    `• Penalty M=$${body.unmetPenalty}/t`,
+  ].join("\n");
+}
+
+// ──────────────────────────────────────────────────────────────
+// 4. Main handler
+// ──────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  let body: ExplainBody;
+
+  // Parse request body
   try {
-    const body = (await req.json()) as ExplainBody;
+    body = (await req.json()) as ExplainBody;
+  } catch {
+    return NextResponse.json(
+      { briefing: "Invalid request body.", fallback: true },
+      { status: 200 },
+    );
+  }
 
-    const config = loadZaiConfig();
+  // Load LLM credentials
+  const config = loadLlmConfig();
 
-    // If no ZAI config is available, return a pre-written briefing based on the data
-    // (graceful degradation — the app still works, just without LLM generation)
-    if (!config) {
-      const openNames = body.openSites
-        .map((o) => {
-          const w = body.warehouses.find((x) => x.id === o.warehouseId);
-          return w ? `${w.name} (${o.inventory.toFixed(0)}t)` : o.warehouseId;
-        })
-        .join(", ");
-
-      const fallbackBriefing = [
-        `• Opened ${body.openSites.length} of ${body.warehouses.length} candidate warehouses: ${openNames}.`,
-        `• Achieved ${(body.coverage * 100).toFixed(1)}% expected coverage vs ${(body.staticCoverage * 100).toFixed(1)}% static baseline — a ${((body.coverage - body.staticCoverage) * 100).toFixed(1)} percentage-point improvement.`,
-        `• Expected unmet demand: ${body.expectedUnmet.toFixed(1)} tons (down from ${body.staticUnmet.toFixed(1)}t static — a ${((1 - body.expectedUnmet / body.staticUnmet) * 100).toFixed(0)}% reduction).`,
-        `• Total expected cost: $${(body.totalCost / 1000).toFixed(0)}K across fixed + inventory + transport + unmet penalty.`,
-        `• Deployed ${body.routes.length} relief routes covering ${body.routes.reduce((a, r) => a + r.distanceKm, 0).toFixed(0)} km with ${body.routes.reduce((a, r) => a + r.carbonKg, 0).toFixed(0)} kg CO₂.`,
-        `• The stochastic plan hedges across ${body.scenarioCount} demand scenarios, prioritizing critical-priority zones when capacity is constrained.`,
-      ].join("\n\n");
-
-      return NextResponse.json({
-        briefing: fallbackBriefing,
-        summary: "Fallback briefing (LLM not configured). Set ZAI_BASE_URL and ZAI_API_KEY env vars to enable AI-generated briefings.",
+  // No credentials → return 200 with fallback (NEVER 500)
+  if (!config) {
+    return NextResponse.json(
+      {
+        briefing: buildFallbackBriefing(body, "API key not configured"),
         fallback: true,
-      });
-    }
+        note: "Set ZAI_BASE_URL and ZAI_API_KEY env vars (or ZAI_CONFIG JSON) to enable AI-generated briefings.",
+      },
+      { status: 200 },
+    );
+  }
 
-    // Create ZAI instance with explicit config
+  // Try the LLM call — wrapped in strict try/catch
+  try {
+    // Dynamic import so the SDK doesn't crash if config is bad
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
     const zai = new ZAI(config);
 
-    const openNames = body.openSites
-      .map((o) => {
-        const w = body.warehouses.find((x) => x.id === o.warehouseId);
-        return w ? `${w.name} (${o.inventory.toFixed(0)}t of ${w.capacity}t)` : o.warehouseId;
-      })
-      .join(", ");
-
-    const criticalZones = body.zones
-      .filter((z) => z.priority === "critical")
-      .map((z) => `${z.name} (pop ${z.population.toLocaleString()})`)
-      .join(", ");
-
-    const summary = `
-DISASTER: ${body.disasterType} — ${body.instanceName}
-SCENARIOS: ${body.scenarioCount} reduced scenarios (probabilities sum to 1)
-
-DEMAND ZONES (${body.zones.length} total):
-Critical priority: ${criticalZones}
-
-OPTIMIZATION RESULT (two-stage stochastic MIP):
-- Warehouses opened: ${body.openSites.length} of ${body.warehouses.length} candidates
-- Open sites: ${openNames}
-- Expected coverage: ${(body.coverage * 100).toFixed(1)}%
-- Expected unmet demand: ${body.expectedUnmet.toFixed(1)} tons
-- Total expected cost: $${(body.totalCost / 1000).toFixed(0)}K
-  (fixed $${(body.fixedCost / 1000).toFixed(0)}K + inventory $${(body.inventoryCost / 1000).toFixed(0)}K + transport $${(body.transportCost / 1000).toFixed(0)}K + unmet penalty)
-- Unmet penalty M = $${body.unmetPenalty}/ton
-
-ROUTING (CVRPTW):
-- ${body.routes.length} relief routes, total ${body.routes.reduce((a, r) => a + r.distanceKm, 0).toFixed(0)} km
-- Carbon: ${body.routes.reduce((a, r) => a + r.carbonKg, 0).toFixed(0)} kg CO2
-
-COMPARISON VS STATIC BASELINE:
-- Static coverage: ${(body.staticCoverage * 100).toFixed(1)}% → Stochastic: ${(body.coverage * 100).toFixed(1)}%
-- Static unmet: ${body.staticUnmet.toFixed(1)}t → Stochastic: ${body.expectedUnmet.toFixed(1)}t
-`.trim();
+    const compactData = buildCompactPrompt(body);
 
     const completion = await zai.chat.completions.create({
       messages: [
         {
           role: "assistant",
           content:
-            "You are AEGIS, an AI operations-research analyst embedded in a disaster response command center. " +
-            "You explain stochastic optimization decisions to emergency managers in clear, actionable, concise English. " +
-            "Use bullet points. Be specific about WHY warehouses were chosen (cost vs. coverage trade-offs, scenario hedging). " +
-            "Highlight life-critical insights (unmet demand, coverage gaps). Keep it under 180 words. Do not use markdown headers, just bullets and short paragraphs.",
+            "You are AEGIS, an AI operations-research analyst in a disaster response center. " +
+            "Explain stochastic optimization decisions in clear, actionable English. " +
+            "Use bullet points. Be specific about WHY warehouses were chosen. " +
+            "Highlight life-critical insights. Keep it under 150 words. No markdown headers.",
         },
         {
           role: "user",
-          content: `Here is the optimization result. Give me a tactical briefing.\n\n${summary}`,
+          content: `Tactical briefing request:\n\n${compactData}`,
         },
       ],
       thinking: { type: "disabled" },
@@ -178,15 +201,24 @@ COMPARISON VS STATIC BASELINE:
     const briefing = completion.choices[0]?.message?.content?.trim();
 
     if (!briefing) {
-      return NextResponse.json({ error: "Empty AI response" }, { status: 502 });
+      // LLM returned empty — fallback, but still 200
+      return NextResponse.json(
+        { briefing: buildFallbackBriefing(body, "empty LLM response"), fallback: true },
+        { status: 200 },
+      );
     }
 
-    return NextResponse.json({ briefing, summary });
-  } catch (e) {
-    console.error("[AEGIS explain] error:", e);
+    return NextResponse.json({ briefing, fallback: false });
+  } catch (llmError) {
+    // LLM call failed (network, auth, rate limit, etc.) — return 200 with fallback
+    console.error("[AEGIS explain] LLM call failed:", llmError);
+    const reason = llmError instanceof Error ? llmError.message.slice(0, 80) : "LLM API error";
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
-      { status: 500 },
+      {
+        briefing: buildFallbackBriefing(body, `LLM error: ${reason}`),
+        fallback: true,
+      },
+      { status: 200 }, // ← ALWAYS 200, never 500
     );
   }
 }
