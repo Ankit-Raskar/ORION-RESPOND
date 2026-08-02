@@ -24,7 +24,7 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "ORION-RESPOND · Stochastic Disaster Logistics",
+  title: "AEGIS-RELIEF · Stochastic Disaster Logistics",
   description:
     "AI-augmented stochastic optimization platform for disaster response pre-positioning and dynamic resource allocation. Two-stage stochastic MIP + CVRPTW + PPO re-optimization policy.",
   keywords: [
@@ -33,9 +33,9 @@ export const metadata: Metadata = {
     "vehicle routing",
     "pre-positioning",
     "operations research",
-    "ORION",
+    "AEGIS",
   ],
-  authors: [{ name: "ORION Global Hackathon 2026" }],
+  authors: [{ name: "AEGIS Global Hackathon 2026" }],
 };
 
 export default function RootLayout({

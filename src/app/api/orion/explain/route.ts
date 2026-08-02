@@ -1,5 +1,5 @@
 /**
- * ORION-RESPOND — AI briefing endpoint.
+ * AEGIS-RELIEF — AI briefing endpoint.
  *
  * Uses the z-ai-web-dev-sdk LLM to generate a plain-English explanation of the
  * stochastic optimization results: why certain warehouses were opened, how the
@@ -77,7 +77,7 @@ COMPARISON VS STATIC BASELINE:
         {
           role: "assistant",
           content:
-            "You are ORION, an AI operations-research analyst embedded in a disaster response command center. " +
+            "You are AEGIS, an AI operations-research analyst embedded in a disaster response command center. " +
             "You explain stochastic optimization decisions to emergency managers in clear, actionable, concise English. " +
             "Use bullet points. Be specific about WHY warehouses were chosen (cost vs. coverage trade-offs, scenario hedging). " +
             "Highlight life-critical insights (unmet demand, coverage gaps). Keep it under 180 words. Do not use markdown headers, just bullets and short paragraphs.",
@@ -98,7 +98,7 @@ COMPARISON VS STATIC BASELINE:
 
     return NextResponse.json({ briefing, summary });
   } catch (e) {
-    console.error("[ORION explain] error:", e);
+    console.error("[AEGIS explain] error:", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },
       { status: 500 },

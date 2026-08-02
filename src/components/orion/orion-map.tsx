@@ -56,6 +56,7 @@ interface OrionMapProps {
   preposition: PrepositionResult | null;
   routing: RoutingResult | null;
   selectedScenarioId: string | null;
+  timeFilter?: number;
 }
 
 export default function OrionMapInner({
@@ -63,6 +64,7 @@ export default function OrionMapInner({
   preposition,
   routing,
   selectedScenarioId,
+  timeFilter = 72,
 }: OrionMapProps) {
   const openIds = new Set(preposition?.openSites.map((o) => o.warehouseId) ?? []);
 
@@ -157,8 +159,8 @@ export default function OrionMapInner({
         );
       })}
 
-      {/* Routes */}
-      {routing?.routes.map((r, i) => {
+      {/* Routes — filtered by timeFilter (only show routes that complete within the selected hour) */}
+      {routing?.routes.filter((r) => r.durationH <= timeFilter).map((r, i) => {
         const color = routeColors[i % routeColors.length];
         return (
           <Polyline

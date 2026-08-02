@@ -27,8 +27,10 @@ import {
   Crosshair,
   Activity,
   Play,
+  Clock,
 } from "lucide-react";
 import { useEffect } from "react";
+import { FormulationPanel } from "./formulation-panel";
 
 const OrionMap = dynamic(() => import("./orion-map"), {
   ssr: false,
@@ -51,6 +53,8 @@ export function MapView() {
   const selectedScenarioId = useOrion((s) => s.selectedScenarioId);
   const setSelectedScenario = useOrion((s) => s.setSelectedScenario);
   const runOptimizer = useOrion((s) => s.runOptimizer);
+  const timeFilter = useOrion((s) => s.timeFilter);
+  const setTimeFilter = useOrion((s) => s.setTimeFilter);
 
   useEffect(() => {
     if (!selectedScenarioId && instance.scenarios.length) {
@@ -122,13 +126,41 @@ export function MapView() {
         />
       </div>
 
+      {/* Time slider — T+0h to T+72h, filters visible routes */}
+      {routing && (
+        <div className="mb-4 flex items-center gap-4 border border-border bg-card px-4 py-2.5">
+          <div className="flex shrink-0 items-center gap-2">
+            <Clock className="h-3.5 w-3.5" style={{ color: "var(--oxblood)" }} />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Time Elapsed</span>
+          </div>
+          <div className="flex flex-1 items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={72}
+              step={1}
+              value={timeFilter}
+              onChange={(e) => setTimeFilter(Number(e.target.value))}
+              className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-secondary accent-[var(--oxblood)]"
+              style={{ accentColor: "var(--oxblood)" }}
+            />
+            <span className="w-16 shrink-0 text-right font-mono text-sm font-bold tabular-nums" style={{ color: "var(--oxblood)" }}>
+              T+{timeFilter}h
+            </span>
+          </div>
+          <div className="hidden shrink-0 font-mono text-[10px] text-muted-foreground sm:block">
+            {routing.routes.filter((r) => r.durationH <= timeFilter).length}/{routing.routes.length} routes shown
+          </div>
+        </div>
+      )}
+
       {/* Main layout: map dominant + right sidebar */}
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         {/* Map — the hero element, takes most space */}
         <div className="space-y-4">
           {/* Map container — tall and dominant. Overlays use z-[1000+] to stay above Leaflet panes (max z=800) */}
           <div className="relative h-[65vh] overflow-hidden border border-border bg-card sm:h-[70vh] lg:h-[calc(100vh-14rem)]">
-            <OrionMap instance={instance} preposition={preposition} routing={routing} selectedScenarioId={selectedScenarioId} />
+            <OrionMap instance={instance} preposition={preposition} routing={routing} selectedScenarioId={selectedScenarioId} timeFilter={timeFilter} />
 
             {/* Title chip — top left, above all map panes */}
             <div className="pointer-events-none absolute left-3 top-3 z-[1000] hidden sm:block">
@@ -142,15 +174,19 @@ export function MapView() {
               </div>
             </div>
 
-            {/* Legend — bottom left, above all map panes */}
-            <div className="pointer-events-none absolute bottom-3 left-3 z-[1000]">
-              <div className="border border-border bg-card px-2.5 py-1.5 shadow-sm sm:px-3 sm:py-2">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[9px] sm:text-[10px]">
-                  <LegendDot color="#9b2c2c" label="cand." shape="diamond" />
-                  <LegendDot color="#2f6b4f" label="optimal" shape="pulse" />
-                  <LegendDot color="#9b2c2c" label="crit." shape="circle" />
-                  <LegendDot color="#b45309" label="high" shape="circle" />
-                  <LegendDot color="#1f5a6b" label="med." shape="circle" />
+            {/* Legend — bottom right, comprehensive marker guide */}
+            <div className="absolute bottom-3 right-3 z-[1000] max-w-[calc(100vw-1.5rem)]">
+              <div className="border border-border bg-card/95 px-3 py-2.5 shadow-md backdrop-blur-sm">
+                <div className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  Map Legend
+                </div>
+                <div className="space-y-1 font-mono text-[10px]">
+                  <LegendItem color="#2f6b4f" label="Open Warehouse" shape="diamond-filled" />
+                  <LegendItem color="#9b2c2c" label="Candidate (unused)" shape="diamond-outline" />
+                  <LegendItem color="#9b2c2c" label="Critical unmet demand" shape="circle" />
+                  <LegendItem color="#b45309" label="High priority demand" shape="circle" />
+                  <LegendItem color="#1f5a6b" label="Medium priority demand" shape="circle" />
+                  <LegendItem color="#2f6b4f" label="Active relief route" shape="line" />
                 </div>
               </div>
             </div>
@@ -298,6 +334,9 @@ export function MapView() {
               )}
             </div>
           )}
+
+          {/* Mathematical formulation — collapsible */}
+          <FormulationPanel />
         </div>
 
         {/* Right sidebar — scenario control + solver log (fills remaining height) */}
@@ -316,22 +355,33 @@ export function MapView() {
   );
 }
 
-function LegendDot({ color, label, shape }: { color: string; label: string; shape: "diamond" | "circle" | "pulse" }) {
+function LegendItem({ color, label, shape }: { color: string; label: string; shape: "diamond-filled" | "diamond-outline" | "circle" | "line" }) {
   return (
-    <span className="flex items-center gap-1">
-      <span
-        className="inline-block"
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: shape === "circle" ? 999 : shape === "diamond" ? 1 : 999,
-          background: shape === "diamond" ? "none" : color,
-          border: shape === "diamond" ? `1.5px solid ${color}` : undefined,
-          transform: shape === "diamond" ? "rotate(45deg)" : undefined,
-          boxShadow: shape === "pulse" ? `0 0 4px ${color}` : undefined,
-        }}
-      />
-      {label}
-    </span>
+    <div className="flex items-center gap-2">
+      {shape === "diamond-filled" && (
+        <span
+          className="inline-block h-2.5 w-2.5"
+          style={{ background: color, transform: "rotate(45deg)" }}
+        />
+      )}
+      {shape === "diamond-outline" && (
+        <span
+          className="inline-block h-2.5 w-2.5"
+          style={{ background: "none", border: `1.5px solid ${color}`, transform: "rotate(45deg)" }}
+        />
+      )}
+      {shape === "circle" && (
+        <span
+          className="inline-block h-2.5 w-2.5 rounded-full"
+          style={{ background: color, opacity: 0.8 }}
+        />
+      )}
+      {shape === "line" && (
+        <svg width="20" height="6" className="inline-block">
+          <line x1="0" y1="3" x2="20" y2="3" stroke={color} strokeWidth="2.5" strokeDasharray="4 3" />
+        </svg>
+      )}
+      <span className="text-foreground/80">{label}</span>
+    </div>
   );
 }

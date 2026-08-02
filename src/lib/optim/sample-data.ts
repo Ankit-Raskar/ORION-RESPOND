@@ -44,7 +44,10 @@ const gulfScenarios: Scenario[] = [
   { id: "S3", label: "Cat-2 grazing Lafayette", prob: 0.14, demands: zoneDemands(gulfZones, { Z1: 0.5, Z2: 0.6, Z3: 0.8, Z4: 0.7, Z5: 1.4, Z6: 0.7, Z7: 0.9 }) },
   { id: "S4", label: "Cat-5 direct hit Houma", prob: 0.08, demands: zoneDemands(gulfZones, { Z1: 1.0, Z2: 1.2, Z3: 1.5, Z4: 1.2, Z5: 1.0, Z6: 2.2, Z7: 1.1 }) },
   { id: "S5", label: "Tropical storm, broad", prob: 0.18, demands: zoneDemands(gulfZones, { Z1: 0.7, Z2: 0.7, Z3: 0.7, Z4: 0.7, Z5: 0.7, Z6: 0.7, Z7: 0.7 }) },
-  { id: "S6", label: "Cat-3 + inland flood", prob: 0.10, demands: zoneDemands(gulfZones, { Z1: 1.3, Z2: 1.4, Z3: 1.6, Z4: 1.5, Z5: 1.2, Z6: 1.4, Z7: 1.6 }) },
+  // S6 — STRESS TEST: Cat-3 + inland flood + dam failure. Demand far exceeds total warehouse capacity (2080t).
+  // Total capacity of all 5 warehouses = 600+380+360+440+300 = 2080t. S6 demand ≈ 2850t.
+  // This forces the solver to make real trade-offs: prioritize critical zones, accept unmet demand.
+  { id: "S6", label: "Cat-3 + inland flood + dam failure", prob: 0.10, demands: zoneDemands(gulfZones, { Z1: 3.5, Z2: 3.8, Z3: 3.2, Z4: 3.0, Z5: 2.5, Z6: 4.0, Z7: 2.8 }) },
   { id: "S7", label: "Near-miss offshore", prob: 0.10, demands: zoneDemands(gulfZones, { Z1: 0.4, Z2: 0.4, Z3: 0.4, Z4: 0.4, Z5: 0.4, Z6: 0.4, Z7: 0.4 }) },
   { id: "S8", label: "Cat-2 late shift east", prob: 0.06, demands: zoneDemands(gulfZones, { Z1: 0.6, Z2: 0.8, Z3: 1.0, Z4: 0.9, Z5: 1.3, Z6: 1.2, Z7: 1.4 }) },
   { id: "S9", label: "Cat-4 rapid intensify", prob: 0.04, demands: zoneDemands(gulfZones, { Z1: 1.7, Z2: 1.9, Z3: 1.8, Z4: 1.6, Z5: 1.1, Z6: 1.9, Z7: 1.0 }) },

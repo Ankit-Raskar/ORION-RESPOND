@@ -1,5 +1,5 @@
 /**
- * ORION-RESPOND — global client state (Zustand).
+ * AEGIS-RELIEF — global client state (Zustand).
  * Holds the selected instance, solver results, streaming log, and view.
  */
 "use client";
@@ -26,10 +26,13 @@ interface OrionState {
   staticBaseline: PrepositionResult | null;
   routing: RoutingResult | null;
   selectedScenarioId: string | null;
+  // time filter for route visualization (0-72 hours)
+  timeFilter: number;
   // actions
   setView: (v: ViewId) => void;
   setInstance: (id: string) => void;
   setSelectedScenario: (id: string | null) => void;
+  setTimeFilter: (h: number) => void;
   pushLog: (line: SolverLogLine) => void;
   clearLog: () => void;
   runOptimizer: () => Promise<void>;
@@ -45,6 +48,7 @@ export const useOrion = create<OrionState>((set, get) => ({
   staticBaseline: null,
   routing: null,
   selectedScenarioId: INSTANCES[0].scenarios[0]?.id ?? null,
+  timeFilter: 72,
 
   setView: (v) => set({ view: v }),
   setInstance: (id) => {
@@ -60,6 +64,7 @@ export const useOrion = create<OrionState>((set, get) => ({
     });
   },
   setSelectedScenario: (id) => set({ selectedScenarioId: id }),
+  setTimeFilter: (h) => set({ timeFilter: h }),
   pushLog: (line) => set((s) => ({ log: [...s.log.slice(-200), line] })),
   clearLog: () => set({ log: [] }),
 
@@ -89,7 +94,7 @@ export const useOrion = create<OrionState>((set, get) => ({
         msg: `Pipeline complete. Stochastic coverage ${(pre.coverage * 100).toFixed(1)}% vs static ${(base.coverage * 100).toFixed(1)}%.`,
       });
     } catch (e) {
-      console.error("[ORION] optimizer failed:", e);
+      console.error("[AEGIS] optimizer failed:", e);
       set({ status: "error" });
       pushLog({
         t: Date.now(),

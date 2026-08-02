@@ -30,7 +30,7 @@ export function OrionShell({ children }: { children: React.ReactNode }) {
           {/* Top metadata strip */}
           <div className="flex items-center justify-between border-b border-border/60 py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
             <div className="flex items-center gap-3">
-              <span className="hidden sm:inline">ORION-RESPOND</span>
+              <span className="hidden sm:inline">AEGIS-RELIEF</span>
               <span className="text-border">/</span>
               <span>Field Report v2.4</span>
             </div>
@@ -69,13 +69,13 @@ export function OrionShell({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setView("hero")}
               className="group flex items-baseline gap-2.5"
-              aria-label="ORION-RESPOND home"
+              aria-label="AEGIS-RELIEF home"
             >
               <span className="font-[var(--font-display)] text-2xl font-black tracking-tight text-foreground">
-                ORION
+                AEGIS
               </span>
               <span className="font-[var(--font-display)] text-xs font-medium italic text-oxblood" style={{ color: "var(--oxblood)" }}>
-                /respond
+                /relief
               </span>
             </button>
 
@@ -150,7 +150,7 @@ export function OrionShell({ children }: { children: React.ReactNode }) {
           <div className="grid gap-6 md:grid-cols-[1fr_auto]">
             <div>
               <div className="flex items-baseline gap-2">
-                <span className="font-[var(--font-display)] text-xl font-black">ORION</span>
+                <span className="font-[var(--font-display)] text-xl font-black">AEGIS</span>
                 <span className="font-[var(--font-display)] text-sm italic text-muted-foreground">— respond</span>
               </div>
               <p className="mt-2 max-w-md text-[12px] leading-relaxed text-muted-foreground">

@@ -49,7 +49,7 @@ export function AboutView() {
           </span>
         </h1>
         <p className="mt-3 max-w-3xl text-sm text-foreground/70 sm:text-base">
-          ORION-RESPOND fuses three operations-research disciplines into a single
+          AEGIS-RELIEF fuses three operations-research disciplines into a single
           decision pipeline. This page documents the models, the data sources,
           and the system architecture for reproducibility.
         </p>
@@ -201,7 +201,7 @@ export function AboutView() {
           ))}
         </ol>
         <p className="mt-4 font-mono text-[10px] text-muted-foreground/70">
-          MIT License · ORION-RESPOND © 2026 · Built for the Orion Global Hackathon
+          MIT License · AEGIS-RELIEF © 2026 · Built for the Orion Global Hackathon
         </p>
       </Card>
     </div>

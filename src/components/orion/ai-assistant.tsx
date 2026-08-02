@@ -99,7 +99,7 @@ export function AiAssistant() {
                 <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--paper)" }} />
               </div>
               <div>
-                <div className="font-[var(--font-display)] text-sm font-semibold">ORION AI Briefing</div>
+                <div className="font-[var(--font-display)] text-sm font-semibold">AEGIS AI Briefing</div>
                 <div className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">LLM tactical analysis</div>
               </div>
             </div>

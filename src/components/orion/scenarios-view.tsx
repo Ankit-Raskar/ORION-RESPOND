@@ -14,8 +14,8 @@ import {
   ResponsiveContainer,
   Cell as RCell,
 } from "recharts";
-import { Dices, Layers3, MapPin, Sparkles, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Dices, Layers3, MapPin, Sparkles, Upload, CheckCircle2, AlertCircle } from "lucide-react";
+import { useMemo, useState, useRef } from "react";
 import { fmtTons } from "@/lib/optim/geo";
 
 export function ScenariosView() {
@@ -24,6 +24,48 @@ export function ScenariosView() {
   const setSelectedScenario = useOrion((s) => s.setSelectedScenario);
   const setView = useOrion((s) => s.setView);
   const [generated, setGenerated] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // CSV upload with strict validation (mirrors backend Pydantic validation)
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadMsg(null);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      const lines = text.trim().split("\n");
+      if (lines.length < 2) {
+        setUploadMsg({ type: "err", text: "CSV must have a header row and at least one data row" });
+        return;
+      }
+      const header = lines[0].toLowerCase().trim().split(",").map((h) => h.trim());
+      const required = ["zone_id", "demand_tons"];
+      const missing = required.filter((r) => !header.includes(r));
+      if (missing.length > 0) {
+        setUploadMsg({ type: "err", text: `Missing required column: ${missing.join(", ")}` });
+        return;
+      }
+      // Validate data rows
+      let validRows = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map((c) => c.trim());
+        const zoneId = cols[header.indexOf("zone_id")];
+        const demand = parseFloat(cols[header.indexOf("demand_tons")]);
+        if (!zoneId || isNaN(demand) || demand < 0) {
+          setUploadMsg({ type: "err", text: `Row ${i}: invalid data — zone_id must be non-empty string, demand_tons must be a non-negative number` });
+          return;
+        }
+        validRows++;
+      }
+      setUploadMsg({ type: "ok", text: `Validated ${validRows} zone demand records from ${file.name}` });
+    };
+    reader.readAsText(file);
+    // reset so the same file can be re-uploaded
+    e.target.value = "";
+  };
 
   const scenarios = useMemo(
     () => (generated ? generateScenarios(instance, 200, 10) : instance.scenarios),
@@ -73,17 +115,45 @@ export function ScenariosView() {
             <Dices className="h-4 w-4" />
             {generated ? "Show bundled set" : "Generate scenarios"}
           </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv"
+            onChange={handleCsvUpload}
+            className="hidden"
+          />
           <Button
             variant="outline"
             size="sm"
             className="gap-2 border-border bg-card"
-            disabled
-            title="CSV upload of zones/demand (POST /scenarios/upload in full stack)"
+            onClick={() => fileRef.current?.click()}
           >
             <Upload className="h-4 w-4" />
             Upload CSV
           </Button>
         </div>
+
+        {/* Upload validation message */}
+        {uploadMsg && (
+          <div
+            className={`mt-2 flex items-center gap-2 border px-3 py-2 font-mono text-[11px] ${
+              uploadMsg.type === "ok"
+                ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700"
+                : "border-red-500/30 bg-red-500/5 text-red-700"
+            }`}
+            style={{
+              borderColor: uploadMsg.type === "ok" ? "var(--forest)" : "var(--oxblood)",
+              color: uploadMsg.type === "ok" ? "var(--forest)" : "var(--oxblood)",
+            }}
+          >
+            {uploadMsg.type === "ok" ? (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            ) : (
+              <AlertCircle className="h-3.5 w-3.5" />
+            )}
+            {uploadMsg.text}
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
