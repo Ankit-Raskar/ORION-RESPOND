@@ -50,6 +50,9 @@ export function AiAssistant() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setBriefing(data.briefing);
+      if (data.fallback) {
+        setError("LLM not configured — showing data-driven briefing. Set ZAI_API_KEY to enable AI generation.");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate briefing");
     } finally {

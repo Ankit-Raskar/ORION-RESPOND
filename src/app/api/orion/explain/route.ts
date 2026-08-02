@@ -6,9 +6,15 @@
  * plan hedges against scenarios, and what the deltas vs. the static baseline mean.
  *
  * The SDK is used server-side only (per skill guidelines).
+ *
+ * Auth: the SDK reads from /etc/.z-ai-config or ~/.z-ai-config or ./.z-ai-config.
+ * On Vercel (and other serverless platforms) that file doesn't exist, so we
+ * build the config from env vars and pass it explicitly.
  */
 import { NextRequest, NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 
 interface ExplainBody {
   instanceName: string;
@@ -29,11 +35,90 @@ interface ExplainBody {
   scenarioCount: number;
 }
 
+/**
+ * Build ZAI config from multiple sources (fallback chain):
+ * 1. /etc/.z-ai-config (sandbox)
+ * 2. ~/.z-ai-config (local dev)
+ * 3. ./.z-ai-config (project root)
+ * 4. ZAI_CONFIG env var (JSON string, for Vercel)
+ * 5. ZAI_BASE_URL + ZAI_API_KEY env vars (Vercel)
+ */
+function loadZaiConfig(): { baseUrl: string; apiKey: string; chatId?: string; userId?: string; token?: string } | null {
+  // 1-3: Try config files
+  const configPaths = [
+    "/etc/.z-ai-config",
+    join(process.env.HOME || "/home", ".z-ai-config"),
+    join(process.cwd(), ".z-ai-config"),
+  ];
+  for (const p of configPaths) {
+    try {
+      if (existsSync(p)) {
+        const config = JSON.parse(readFileSync(p, "utf-8"));
+        if (config.baseUrl && config.apiKey) return config;
+      }
+    } catch {
+      // continue to next source
+    }
+  }
+
+  // 4: ZAI_CONFIG env var (JSON string)
+  if (process.env.ZAI_CONFIG) {
+    try {
+      const config = JSON.parse(process.env.ZAI_CONFIG);
+      if (config.baseUrl && config.apiKey) return config;
+    } catch {
+      // fall through
+    }
+  }
+
+  // 5: Individual env vars
+  if (process.env.ZAI_BASE_URL && process.env.ZAI_API_KEY) {
+    return {
+      baseUrl: process.env.ZAI_BASE_URL,
+      apiKey: process.env.ZAI_API_KEY,
+      ...(process.env.ZAI_CHAT_ID && { chatId: process.env.ZAI_CHAT_ID }),
+      ...(process.env.ZAI_USER_ID && { userId: process.env.ZAI_USER_ID }),
+      ...(process.env.ZAI_TOKEN && { token: process.env.ZAI_TOKEN }),
+    };
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as ExplainBody;
 
-    const zai = await ZAI.create();
+    const config = loadZaiConfig();
+
+    // If no ZAI config is available, return a pre-written briefing based on the data
+    // (graceful degradation — the app still works, just without LLM generation)
+    if (!config) {
+      const openNames = body.openSites
+        .map((o) => {
+          const w = body.warehouses.find((x) => x.id === o.warehouseId);
+          return w ? `${w.name} (${o.inventory.toFixed(0)}t)` : o.warehouseId;
+        })
+        .join(", ");
+
+      const fallbackBriefing = [
+        `• Opened ${body.openSites.length} of ${body.warehouses.length} candidate warehouses: ${openNames}.`,
+        `• Achieved ${(body.coverage * 100).toFixed(1)}% expected coverage vs ${(body.staticCoverage * 100).toFixed(1)}% static baseline — a ${((body.coverage - body.staticCoverage) * 100).toFixed(1)} percentage-point improvement.`,
+        `• Expected unmet demand: ${body.expectedUnmet.toFixed(1)} tons (down from ${body.staticUnmet.toFixed(1)}t static — a ${((1 - body.expectedUnmet / body.staticUnmet) * 100).toFixed(0)}% reduction).`,
+        `• Total expected cost: $${(body.totalCost / 1000).toFixed(0)}K across fixed + inventory + transport + unmet penalty.`,
+        `• Deployed ${body.routes.length} relief routes covering ${body.routes.reduce((a, r) => a + r.distanceKm, 0).toFixed(0)} km with ${body.routes.reduce((a, r) => a + r.carbonKg, 0).toFixed(0)} kg CO₂.`,
+        `• The stochastic plan hedges across ${body.scenarioCount} demand scenarios, prioritizing critical-priority zones when capacity is constrained.`,
+      ].join("\n\n");
+
+      return NextResponse.json({
+        briefing: fallbackBriefing,
+        summary: "Fallback briefing (LLM not configured). Set ZAI_BASE_URL and ZAI_API_KEY env vars to enable AI-generated briefings.",
+        fallback: true,
+      });
+    }
+
+    // Create ZAI instance with explicit config
+    const zai = new ZAI(config);
 
     const openNames = body.openSites
       .map((o) => {
