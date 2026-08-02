@@ -4,7 +4,6 @@
 
 > *When the ground stops shaking, the math begins.*
 
-Built for the **AEGIS Global Hackathon 2026** (INFORMS · GDG · UnsaidTalks).
 
 ---
 
@@ -318,4 +317,3 @@ The bundled scenarios are loosely based on real US disaster corridors and calibr
 
 MIT © 2026 AEGIS-RELIEF
 
-Built for the AEGIS Global Hackathon 2026 · INFORMS · GDG · UnsaidTalks
